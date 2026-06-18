@@ -1,0 +1,2 @@
+# Aucune dependance externe obligatoire.
+# Le module utilise uniquement Python 3.12+ et Tkinter, inclus avec Python Windows officiel.
