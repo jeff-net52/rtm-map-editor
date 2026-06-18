@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
@@ -15,6 +17,7 @@ from rtm_map_editor.map_archive import (
     MapDocument,
     load_map,
 )
+from rtm_map_editor.osm_import import bounds_from_center, clean_bounds, fetch_osm_document
 
 
 class MapEditorApp(tk.Tk):
@@ -46,10 +49,11 @@ class MapEditorApp(tk.Tk):
         toolbar.columnconfigure(10, weight=1)
 
         ttk.Button(toolbar, text="Ouvrir carte", command=self.open_map).grid(row=0, column=0, padx=(0, 6))
-        ttk.Button(toolbar, text="Exporter ZIP RTM", command=self.export_map).grid(row=0, column=1, padx=(0, 14))
-        ttk.Button(toolbar, text="Zoom +", command=lambda: self.set_zoom(self.zoom * 1.18)).grid(row=0, column=2, padx=3)
-        ttk.Button(toolbar, text="Zoom -", command=lambda: self.set_zoom(self.zoom / 1.18)).grid(row=0, column=3, padx=3)
-        ttk.Button(toolbar, text="100%", command=lambda: self.set_zoom(1.0)).grid(row=0, column=4, padx=(3, 14))
+        ttk.Button(toolbar, text="Importer OSM", command=self.open_osm_import_dialog).grid(row=0, column=1, padx=(0, 6))
+        ttk.Button(toolbar, text="Exporter ZIP RTM", command=self.export_map).grid(row=0, column=2, padx=(0, 14))
+        ttk.Button(toolbar, text="Zoom +", command=lambda: self.set_zoom(self.zoom * 1.18)).grid(row=0, column=3, padx=3)
+        ttk.Button(toolbar, text="Zoom -", command=lambda: self.set_zoom(self.zoom / 1.18)).grid(row=0, column=4, padx=3)
+        ttk.Button(toolbar, text="100%", command=lambda: self.set_zoom(1.0)).grid(row=0, column=5, padx=(3, 14))
         ttk.Label(toolbar, textvariable=self.status).grid(row=0, column=10, sticky="e")
 
         side = ttk.Frame(self, padding=10)
@@ -177,6 +181,130 @@ class MapEditorApp(tk.Tk):
         self.status.set(f"Carte chargee: {Path(path).name}")
         self._refresh_layer_list()
         self.redraw()
+
+    def open_osm_import_dialog(self) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title("Importer une zone OpenStreetMap")
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        dialog.columnconfigure(1, weight=1)
+
+        default_bounds = self.doc.bounds if self.doc and self.doc.bounds else {"south": 48.3166, "west": 6.0706, "north": 48.3249, "east": 6.0889}
+        name_var = tk.StringVar(value="Carte OpenStreetMap")
+        center_lat_var = tk.StringVar(value=f"{((default_bounds['south'] + default_bounds['north']) / 2):.6f}")
+        center_lon_var = tk.StringVar(value=f"{((default_bounds['west'] + default_bounds['east']) / 2):.6f}")
+        radius_var = tk.StringVar(value="900")
+        south_var = tk.StringVar(value=f"{default_bounds['south']:.6f}")
+        west_var = tk.StringVar(value=f"{default_bounds['west']:.6f}")
+        north_var = tk.StringVar(value=f"{default_bounds['north']:.6f}")
+        east_var = tk.StringVar(value=f"{default_bounds['east']:.6f}")
+        dialog_status = tk.StringVar(value="Definissez une zone, ouvrez OSM si besoin, puis importez.")
+
+        def current_bounds() -> dict[str, float]:
+            return clean_bounds({"south": south_var.get(), "west": west_var.get(), "north": north_var.get(), "east": east_var.get()})
+
+        def fill_bounds(bounds: dict[str, float]) -> None:
+            south_var.set(f"{bounds['south']:.6f}")
+            west_var.set(f"{bounds['west']:.6f}")
+            north_var.set(f"{bounds['north']:.6f}")
+            east_var.set(f"{bounds['east']:.6f}")
+            center_lat_var.set(f"{((bounds['south'] + bounds['north']) / 2):.6f}")
+            center_lon_var.set(f"{((bounds['west'] + bounds['east']) / 2):.6f}")
+
+        def apply_center_radius() -> None:
+            try:
+                fill_bounds(bounds_from_center(float(center_lat_var.get()), float(center_lon_var.get()), float(radius_var.get())))
+                dialog_status.set("Zone calculee depuis le centre et le rayon.")
+            except Exception as exc:
+                messagebox.showerror("Zone OSM", str(exc), parent=dialog)
+
+        def use_current_map() -> None:
+            if not self.doc or not self.doc.bounds:
+                messagebox.showinfo("Zone OSM", "Aucune carte chargee.", parent=dialog)
+                return
+            fill_bounds(self.doc.bounds)
+            dialog_status.set("Zone reprise depuis la carte ouverte.")
+
+        def use_mirecourt() -> None:
+            fill_bounds({"south": 48.3166, "west": 6.0706, "north": 48.3249, "east": 6.0889})
+            name_var.set("Circuit de Mirecourt OSM")
+            dialog_status.set("Zone Mirecourt chargee.")
+
+        def open_browser() -> None:
+            try:
+                bounds = current_bounds()
+            except Exception as exc:
+                messagebox.showerror("Zone OSM", str(exc), parent=dialog)
+                return
+            lat = (bounds["south"] + bounds["north"]) / 2
+            lon = (bounds["west"] + bounds["east"]) / 2
+            url = f"https://www.openstreetmap.org/?mlat={lat:.6f}&mlon={lon:.6f}#map=17/{lat:.6f}/{lon:.6f}"
+            webbrowser.open(url)
+
+        def import_osm() -> None:
+            try:
+                bounds = current_bounds()
+            except Exception as exc:
+                messagebox.showerror("Zone OSM", str(exc), parent=dialog)
+                return
+            import_button.configure(state=tk.DISABLED)
+            dialog_status.set("Import OpenStreetMap en cours...")
+
+            def worker() -> None:
+                try:
+                    document = fetch_osm_document(name_var.get(), bounds)
+                except Exception as exc:
+                    self.after(0, lambda: finish_error(exc))
+                    return
+                self.after(0, lambda: finish_success(document))
+
+            def finish_error(exc: Exception) -> None:
+                import_button.configure(state=tk.NORMAL)
+                dialog_status.set("Import OpenStreetMap impossible.")
+                messagebox.showerror("Import OSM", str(exc), parent=dialog)
+
+            def finish_success(document: MapDocument) -> None:
+                self.doc = document
+                self.selected = None
+                self.draft_points = []
+                self.zoom = 1.0
+                self.status.set(f"Zone OSM importee: {document.name}")
+                self._refresh_layer_list()
+                self.redraw()
+                dialog.destroy()
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        ttk.Label(dialog, text="Nom de la carte").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 4))
+        ttk.Entry(dialog, textvariable=name_var, width=36).grid(row=0, column=1, columnspan=3, sticky="ew", padx=10, pady=(10, 4))
+
+        center_frame = ttk.LabelFrame(dialog, text="Centre et rayon", padding=8)
+        center_frame.grid(row=1, column=0, columnspan=4, sticky="ew", padx=10, pady=6)
+        ttk.Label(center_frame, text="Latitude").grid(row=0, column=0, sticky="w")
+        ttk.Entry(center_frame, textvariable=center_lat_var, width=12).grid(row=0, column=1, padx=5)
+        ttk.Label(center_frame, text="Longitude").grid(row=0, column=2, sticky="w")
+        ttk.Entry(center_frame, textvariable=center_lon_var, width=12).grid(row=0, column=3, padx=5)
+        ttk.Label(center_frame, text="Rayon m").grid(row=0, column=4, sticky="w")
+        ttk.Entry(center_frame, textvariable=radius_var, width=8).grid(row=0, column=5, padx=5)
+        ttk.Button(center_frame, text="Calculer zone", command=apply_center_radius).grid(row=0, column=6, padx=(8, 0))
+
+        bounds_frame = ttk.LabelFrame(dialog, text="Zone importee", padding=8)
+        bounds_frame.grid(row=2, column=0, columnspan=4, sticky="ew", padx=10, pady=6)
+        for index, (label, variable) in enumerate([("Sud", south_var), ("Ouest", west_var), ("Nord", north_var), ("Est", east_var)]):
+            ttk.Label(bounds_frame, text=label).grid(row=index // 2, column=(index % 2) * 2, sticky="w", pady=2)
+            ttk.Entry(bounds_frame, textvariable=variable, width=14).grid(row=index // 2, column=(index % 2) * 2 + 1, padx=5, pady=2)
+
+        actions = ttk.Frame(dialog, padding=(10, 4))
+        actions.grid(row=3, column=0, columnspan=4, sticky="ew")
+        ttk.Button(actions, text="Zone Mirecourt", command=use_mirecourt).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(actions, text="Depuis carte actuelle", command=use_current_map).grid(row=0, column=1, padx=6)
+        ttk.Button(actions, text="Ouvrir OSM", command=open_browser).grid(row=0, column=2, padx=6)
+        import_button = ttk.Button(actions, text="Importer zone", command=import_osm)
+        import_button.grid(row=0, column=3, padx=(18, 6))
+        ttk.Button(actions, text="Annuler", command=dialog.destroy).grid(row=0, column=4, padx=(6, 0))
+
+        ttk.Label(dialog, textvariable=dialog_status).grid(row=4, column=0, columnspan=4, sticky="w", padx=10, pady=(4, 10))
+        dialog.grab_set()
 
     def export_map(self) -> None:
         if not self.doc:

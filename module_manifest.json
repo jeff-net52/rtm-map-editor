@@ -1,10 +1,10 @@
 {
   "id": "rtm_map_editor",
   "name": "RTM Map Editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "standalone_desktop_module",
   "entrypoint": "run_map_editor.ps1",
-  "description": "Editeur Windows autonome pour importer, dessiner et exporter les couches cartographiques RTM sans modifier la base RTM.",
+  "description": "Editeur Windows autonome pour importer OSM/GeoJSON, dessiner et exporter les couches cartographiques RTM sans modifier la base RTM.",
   "rtm_integration": {
     "mode": "external_module",
     "writes_to_rtm_database": false,

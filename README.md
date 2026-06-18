@@ -33,13 +33,28 @@ Le lanceur utilise `.venv` si l'environnement virtuel du projet existe, sinon il
 
 ## Utilisation
 
-1. Cliquez sur `Ouvrir carte` et selectionnez une archive.
-2. Choisissez une couche active.
-3. Utilisez `Selection` pour selectionner un objet et deplacer ses sommets.
-4. Utilisez `Ajouter ligne` pour piste, pit-lane, voies ou limites.
-5. Utilisez `Ajouter surface` pour vegetation, batiments ou parking.
-6. `Reprendre selection` copie la geometrie visuelle selectionnee dans la couche active.
-7. `Exporter ZIP RTM` cree une nouvelle archive carte sans l'activer automatiquement dans RTM.
+1. Cliquez sur `Ouvrir carte` et selectionnez une archive, ou cliquez sur `Importer OSM`.
+2. Pour OpenStreetMap, indiquez un centre/rayon ou une zone sud-ouest-nord-est, puis cliquez sur `Importer zone`.
+3. Le bouton `Ouvrir OSM` ouvre la zone dans OpenStreetMap pour controle visuel avant import.
+4. Choisissez une couche active.
+5. Utilisez `Selection` pour selectionner un objet et deplacer ses sommets.
+6. Utilisez `Ajouter ligne` pour piste, pit-lane, voies ou limites.
+7. Utilisez `Ajouter surface` pour vegetation, batiments ou parking.
+8. `Reprendre selection` copie la geometrie visuelle selectionnee dans la couche active.
+9. `Exporter ZIP RTM` cree une nouvelle archive carte sans l'activer automatiquement dans RTM.
+
+## Import OpenStreetMap
+
+L'import OSM utilise l'API Overpass publique pour recuperer les ways presents dans la zone. Les objets sont classes automatiquement :
+
+- `building` vers `buildings`,
+- parkings vers `parking`,
+- zones naturelles, parcs et surfaces herbeuses vers `vegetation`,
+- `highway=raceway` vers `track_main` ou `track_karting`,
+- routes de service vers `internal_roads` ou `pitlane` si le nom/service indique une pit-lane,
+- barrieres et clotures vers `fences`.
+
+La zone est volontairement limitee pour eviter les imports trop lourds depuis un service public.
 
 ## Publication GitHub
 

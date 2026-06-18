@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 
 from rtm_map_editor.map_archive import MapDocument, load_map
+from rtm_map_editor.osm_import import bounds_from_center, document_from_osm_payload
 
 
 class MapArchiveTests(unittest.TestCase):
@@ -63,6 +64,62 @@ class MapArchiveTests(unittest.TestCase):
         self.assertEqual(cloned["geometry"]["type"], "Polygon")
         ring = cloned["geometry"]["coordinates"][0]
         self.assertEqual(ring[0], ring[-1])
+
+    def test_osm_payload_is_imported_as_rtm_layers(self) -> None:
+        bounds = {"south": 48.316, "west": 6.070, "north": 48.325, "east": 6.089}
+        payload = {
+            "elements": [
+                {
+                    "type": "way",
+                    "id": 1,
+                    "tags": {"highway": "raceway", "name": "Circuit"},
+                    "geometry": [{"lat": 48.320, "lon": 6.078}, {"lat": 48.321, "lon": 6.080}],
+                },
+                {
+                    "type": "way",
+                    "id": 2,
+                    "tags": {"building": "yes"},
+                    "geometry": [
+                        {"lat": 48.320, "lon": 6.078},
+                        {"lat": 48.320, "lon": 6.079},
+                        {"lat": 48.321, "lon": 6.079},
+                        {"lat": 48.320, "lon": 6.078},
+                    ],
+                },
+                {
+                    "type": "way",
+                    "id": 3,
+                    "tags": {"landuse": "grass"},
+                    "geometry": [
+                        {"lat": 48.322, "lon": 6.080},
+                        {"lat": 48.322, "lon": 6.081},
+                        {"lat": 48.323, "lon": 6.081},
+                        {"lat": 48.322, "lon": 6.080},
+                    ],
+                },
+                {
+                    "type": "way",
+                    "id": 4,
+                    "tags": {"highway": "service", "name": "Pit lane"},
+                    "geometry": [{"lat": 48.321, "lon": 6.081}, {"lat": 48.322, "lon": 6.082}],
+                },
+            ]
+        }
+        document = document_from_osm_payload("OSM test", bounds, payload)
+
+        self.assertEqual(document.feature_count("track_main"), 1)
+        self.assertEqual(document.feature_count("buildings"), 1)
+        self.assertEqual(document.feature_count("vegetation"), 1)
+        self.assertEqual(document.feature_count("pitlane"), 1)
+        self.assertEqual(document.feature_count("fences"), 1)
+        self.assertEqual(document.bounds, bounds)
+
+    def test_bounds_from_center_creates_valid_small_zone(self) -> None:
+        bounds = bounds_from_center(48.32075, 6.07975, 500)
+
+        self.assertLess(bounds["south"], bounds["north"])
+        self.assertLess(bounds["west"], bounds["east"])
+        self.assertLess(bounds["north"] - bounds["south"], 0.02)
 
 
 if __name__ == "__main__":
